@@ -1120,14 +1120,15 @@ Any advanced mode should coexist with, not silently replace, the current simplif
 
 Because the project is static, GitHub Pages is straightforward.
 
-Typical setup:
+The workflow in `.github/workflows/pages.yml` deploys on pushes to `master` and can also be run manually from the Actions tab. It uploads only `index.html`, which contains the complete application, and publishes it using GitHub's official Pages actions. No build step or dependencies are needed.
 
-1. Put the current visualizer in the repository root as `index.html`.
-2. Commit `README.md`.
-3. Push the repository to GitHub.
-4. In the repository settings, enable GitHub Pages from the intended branch/root directory.
+Setup:
 
-No build action is required for the current architecture.
+1. In the repository's **Settings → Pages**, set **Source** to **GitHub Actions**.
+2. Commit and push the workflow and site changes to `master`.
+3. Check the **Deploy to GitHub Pages** run in the Actions tab. The deployment exposes the published site URL.
+
+See [GitHub's custom Pages workflow documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) for publishing requirements.
 
 ---
 
@@ -1150,4 +1151,3 @@ If you are an automated coding agent modifying this repository, start with these
 13. Combined memory is the initial view; separation is an explicit teaching action.
 14. Preserve the current no-build/offline-friendly setup unless there is a compelling reason to change it.
 15. When changing the configuration schema, update validation, rendering, built-ins, the embedded spec, and this README together.
-
