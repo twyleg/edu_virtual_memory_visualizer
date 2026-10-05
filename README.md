@@ -81,7 +81,7 @@ The most important assumption in the entire project is the virtual machine model
 
 ## 32-bit word-addressed memory
 
-Memory contains **64 memory cells**.
+Memory contains **32 memory cells**.
 
 Each visible memory cell represents one complete **32-bit word**.
 
@@ -95,20 +95,22 @@ Addresses are simple decimal values:
 2
 3
 ...
-63
+31
 ```
 
 The tool deliberately hides concepts such as individual bytes and endianness. The goal is to teach where variables live and how references work before introducing lower-level memory representation.
 
 ## Memory regions
 
-The current layout is:
+The default layout is:
 
 | Region | Addresses | Direction |
 |---|---:|---|
 | Static / Class Data | `0..7` | grows upward |
-| Heap | `8..31` | grows upward |
-| Stack | `32..63` | grows downward |
+| Heap | `8..23` | grows upward |
+| Stack | `24..31` | grows downward |
+
+Examples 12 and 13 enable shared heap/stack space. Their boundary starts at address `24` and moves as allocations grow or frames return; unused heap cells can become stack cells. Static addresses `0..7` remain reserved. Other examples and custom configurations without `memory.shared` keep fixed ranges.
 
 Undefined cells always contain:
 
@@ -137,16 +139,16 @@ Do not “fix” this into a realistic HotSpot memory layout unless the teaching
 
 # Stack model
 
-The stack occupies addresses `32..63` and grows downward.
+The stack initially occupies addresses `24..31` and grows downward. With shared heap/stack space enabled, it can continue into free addresses below `24`.
 
 Example:
 
 ```text
-63  main.a
-62  main.b
-61  add.result
-60  add.x
-59  add.y
+31  main.a
+30  main.b
+29  add.result
+28  add.x
+27  add.y
 ```
 
 Each method invocation may define a logical **stack frame**.
@@ -167,7 +169,7 @@ They are not intended to reproduce the physical native stack layout of a real JV
 
 # Heap model
 
-Objects and arrays live in the heap region, addresses `8..31`.
+Objects and arrays initially live in the heap region, addresses `8..23`. With shared heap/stack space enabled, allocations can use free space between the two regions.
 
 The heap grows upward.
 
@@ -209,7 +211,7 @@ Example:
 
 ```text
 Stack
-63  person = 8
+31  person = 8
              |
              v
 Heap
@@ -226,7 +228,7 @@ In JSON, the numeric value and visual relationship are represented independently
   "label": "person",
   "region": "stack",
   "frame": "main",
-  "address": 63,
+  "address": 31,
   "value": 8,
   "pointsTo": "person.age"
 }
@@ -274,8 +276,8 @@ A typical configuration looks like this:
   "subtitle": "Optional subtitle",
   "memory": {
     "static": { "start": 0, "size": 8 },
-    "heap":   { "start": 8, "size": 24 },
-    "stack":  { "start": 32, "size": 32 }
+    "heap":   { "start": 8, "size": 16 },
+    "stack":  { "start": 24, "size": 8 }
   },
   "states": [
     {
@@ -291,7 +293,7 @@ A typical configuration looks like this:
           "label": "number = 10",
           "region": "stack",
           "frame": "main",
-          "address": 63,
+          "address": 31,
           "value": 10
         }
       ]
@@ -323,10 +325,14 @@ Defines the three memory ranges:
 ```json
 "memory": {
   "static": { "start": 0, "size": 8 },
-  "heap":   { "start": 8, "size": 24 },
-  "stack":  { "start": 32, "size": 32 }
+  "heap":   { "start": 8, "size": 16 },
+  "stack":  { "start": 24, "size": 8 }
 }
 ```
+
+### `memory.shared`
+
+Optional boolean, default `false`. When `true`, the adjacent heap and stack ranges form one shared pool. Their configured ranges define the initial display boundary. Heap allocations grow upward and stack allocations grow downward; their frontiers must not cross. The UI moves the boundary for each snapshot and places stack frames in the stack section, including borrowed cells. The display still contains 32 cells in the built-in examples.
 
 ### `states`
 
@@ -350,6 +356,18 @@ The 1-based source-code line highlighted for this state.
 "line": 7
 ```
 
+## `collision`
+
+Optional metadata for a blocked allocation at the heap/stack boundary:
+
+```json
+"collision": { "region": "stack", "address": 23, "label": "dive(8): depth = 8" }
+```
+
+`region` is the requesting region (`heap` or `stack`). `address` must be the immediately adjacent word beyond the requesting region’s occupied allocation frontier, occupied by the other region. This frontier can move when shared space is enabled. `label` describes the attempted allocation. The attempted cell is not added to `memory`; existing cells remain intact. The UI displays a warning and highlights both sides of the boundary in combined and separated views.
+
+Custom configurations retain their own region sizes; the 32-cell layout is the built-in default.
+
 ## `memory`
 
 Required.
@@ -362,7 +380,7 @@ Optional.
 
 Explanatory text associated with the state.
 
-The note infrastructure still exists in the application, but the visible Note panel has deliberately been removed to save screen space.
+The note infrastructure still exists in the application, but the general Note panel has deliberately been removed to save screen space. Shared heap/stack examples display their current note in a compact banner above the memory grid.
 
 **Do not delete note support.** It may be reintroduced later.
 
@@ -403,7 +421,7 @@ Each defined memory cell has this structure:
   "label": "number = 10",
   "region": "stack",
   "frame": "main",
-  "address": 63,
+  "address": 31,
   "value": 10,
   "pointsTo": "optional.target.id"
 }
@@ -628,9 +646,11 @@ Do not optimize only for dark mode.
 
 # Built-in examples
 
-At the time of this README, `index.html` contains ten built-in examples in the `BUILTIN_EXAMPLES` array.
+At the time of this README, `index.html` contains thirteen built-in examples in the `BUILTIN_EXAMPLES` array.
 
 They are deliberately ordered so each example introduces only one or two new concepts.
+
+Every built-in example starts at its `public static void main(String[] args)` declaration with an empty memory snapshot. All cells are zero and no modeled variables are allocated yet. Stepping forward then introduces the program’s allocations.
 
 ## 1 — Hello World
 
@@ -668,6 +688,8 @@ Introduces:
 
 ## 4 — Call stack
 
+Each of `main()`, `first()`, `second()`, and `third()` declares two local `int` variables. At maximum depth, four two-cell frames fill the eight stack cells at addresses `24..31`. Returning removes both locals of a frame together.
+
 Introduces:
 
 - a chain of several nested method calls,
@@ -675,6 +697,8 @@ Introduces:
 - stack frames being pushed and popped.
 
 ## 5 — Different callers
+
+Every method declares two local `int` variables. Calling `show()` from either `first()` or `second()` produces three two-cell frames, using six stack cells. Each return removes both locals together, and the second caller reuses the first caller’s freed stack space.
 
 Introduces:
 
@@ -696,7 +720,13 @@ Introduces:
 - the project's explicit return-transfer convention,
 - copying a return value into a caller-reserved result cell.
 
-## 7 — First heap object
+## 7 — Local parameter assignments
+
+Immediately follows the parameters/return example. `main()` stores `a = 5` and `b = 3`, then calls `change(a, b)`. The callee receives copies in separate parameter cells `x` and `y`, then computes local `result = x + y` (8) in its own frame. Assigning `x = 99` and `y = 77` changes only those cells; the caller’s variables remain `5` and `3` throughout.
+
+After the callee returns, its parameter cells and local `result` cell disappear. The caller prints its unchanged values. This example isolates parameter assignment before introducing heap objects; Example 10 later revisits primitive copying alongside the object-reference example.
+
+## 8 — First heap object
 
 Introduces:
 
@@ -713,9 +743,9 @@ boolean student;
 float height;
 ```
 
-## 8 — Array of Persons
+## 9 — Array of Persons
 
-Uses four `Person` instances with the same `Person` class as Example 7.
+Uses four `Person` instances with the same `Person` class as Example 8.
 
 Introduces:
 
@@ -727,15 +757,15 @@ Important distinction:
 
 The local variable `people` is a reference on the stack. The `Person[]` object is on the heap, and its array elements contain references to individual `Person` objects.
 
-## 9 — Primitive parameter copy
+## 10 — Primitive parameter copy
 
 Introduces Java's pass-by-value behavior for primitive values.
 
 A primitive argument is copied into the callee's parameter cell. Modifying the parameter does not modify the original caller variable.
 
-## 10 — Object reference parameter
+## 11 — Object reference parameter
 
-Pairs directly with Example 9.
+Pairs directly with Example 10.
 
 Java still passes the argument by value, but the copied value is an object reference.
 
@@ -746,6 +776,22 @@ Therefore:
 - changing an object field through the callee reference changes the shared heap object.
 
 This example should not be described as “Java passes objects by reference”. Java passes the reference **by value**.
+
+---
+
+## 12 — Stack growth into free heap space
+
+An `int[4]` occupies heap addresses `8..11`, leaving ample free space. Its reference is at stack address `31`. Ten recursive calls to `dive(int depth)` grow the stack down to address `21`, safely passing the initial boundary at `24`. Addresses `12..20` remain free between heap and stack.
+
+The visible boundary moves so borrowed addresses `21..23` have stack coloring and frame labels in both combined and separated views. Recursion stops at depth 10, and subsequent snapshots show the frames returning and the boundary moving back. A visible explanation accompanies each step.
+
+## 13 — Heap / stack collision
+
+Uses the same bounded recursive method, with an `int[16]` instead. The array fills heap addresses `8..23`. Its reference occupies stack address `31`. Seven recursive calls fill stack addresses `30..24`. The next call would need address `23`, already occupied by the array's last element.
+
+The final snapshot keeps all existing values intact and displays a collision warning, highlighting heap address `23` and stack address `24`. The attempted allocation is blocked. Step backward to remove the warning and revisit the growth of the stack.
+
+Both examples illustrate opposing growth within shared space in the 32-cell teaching model. Real JVMs manage heap and stack separately. The eight static cells remain reserved even when unused.
 
 ---
 
@@ -1091,8 +1137,8 @@ If you are an automated coding agent modifying this repository, start with these
 
 1. `index.html` is the complete application.
 2. This is a teaching visualizer, not a JVM emulator.
-3. Memory is a 64-cell, 32-bit, word-addressed virtual model.
-4. Static = `0..7`, heap = `8..31`, stack = `32..63`.
+3. Memory is a 32-cell, 32-bit, word-addressed virtual model.
+4. Initial ranges: static = `0..7`, heap = `8..23`, stack = `24..31`; `memory.shared` allows heap/stack boundary movement.
 5. One modeled variable/reference/field/array element = one memory cell.
 6. Stack grows downward; heap/static grow upward.
 7. Memory states are complete declarative snapshots tied to source line numbers.
